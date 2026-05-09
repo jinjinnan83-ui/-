@@ -1,0 +1,31 @@
+{
+  "name": "-",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i ./src/tailwind-input.css -o ./assets/styles.css --minify",
+    "dev:css": "tailwindcss -c tailwind.config.js -i ./src/tailwind-input.css -o ./assets/styles.css --watch",
+    "serve": "python3 -m http.server 8000",
+    "build:prod": "npm run build:css && node ./scripts/build-prod.mjs",
+    "serve:dist": "python3 -m http.server 8080 --directory dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jinjinnan83-ui/-.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jinjinnan83-ui/-/issues"
+  },
+  "homepage": "https://github.com/jinjinnan83-ui/-#readme",
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.2.0",
+    "@tailwindcss/line-clamp": "^0.4.4",
+    "tailwindcss": "^3.4.19",
+    "vue": "^3.5.34"
+  }
+}
