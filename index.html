@@ -10,7 +10,6 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; }
         .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
         .fade-enter-from, .fade-leave-to { opacity: 0; }
-        /* 自定义滚动条 */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     </style>
@@ -18,29 +17,47 @@
 <body>
     <div id="app" class="max-w-md mx-auto h-screen bg-white shadow-xl relative overflow-hidden flex flex-col">
         
-        <header class="bg-bnu-green text-white p-4 shadow-md flex justify-between items-center z-10">
-            <div class="font-bold text-lg tracking-wider">
+        <header class="bg-bnu-green text-white p-4 shadow-md flex justify-between items-center z-10 gap-2">
+            <div class="font-bold text-lg tracking-wider shrink-0">
                 <i class="fa-solid fa-leaf text-bnu-gold mr-2"></i>师友伴
             </div>
-            <div class="text-sm bg-white/20 px-3 py-1 rounded-full backdrop-blur-sm">
-                <i class="fa-solid fa-shield-halved mr-1 text-bnu-gold"></i>北师大实名区
+            <div v-if="session" class="flex items-center gap-2 text-xs min-w-0">
+                <span class="truncate max-w-[7rem] opacity-90" :title="userEmail">{{ userEmail }}</span>
+                <button type="button" @click="logout" class="bg-white/20 px-2 py-1 rounded shrink-0">退出</button>
+            </div>
+            <div v-else-if="authReady" class="flex items-center gap-2 text-xs shrink-0">
+                <button type="button" @click="showAuthModal = true" class="bg-white/20 px-3 py-1 rounded-full">登录 / 注册</button>
             </div>
         </header>
 
-        <main v-if="currentView === 'hall'" class="flex-1 overflow-y-auto p-4 bg-gray-50 pb-20">
+        <div v-if="configError" class="mx-3 mt-3 text-xs text-red-600 bg-red-50 p-3 rounded-lg border border-red-100">
+            {{ configError }}
+        </div>
+
+        <div v-if="!authReady" class="flex-1 flex items-center justify-center text-gray-500 text-sm p-6">
+            正在连接…
+        </div>
+
+        <div v-else-if="!session" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
+            <p class="mb-4 text-sm">请先登录后再使用抢单大厅</p>
+            <button type="button" @click="showAuthModal = true" class="bg-bnu-green text-white px-6 py-2 rounded-lg font-medium">登录 / 注册</button>
+        </div>
+
+        <main v-else-if="session && currentView === 'hall'" class="flex-1 overflow-y-auto p-4 bg-gray-50 pb-20">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-gray-800 font-bold text-lg border-l-4 border-bnu-green pl-2">抢单大厅</h2>
-                <span class="text-xs text-gray-500">实时更新中...</span>
+                <span class="text-xs text-gray-500">{{ ordersLoading ? '加载中…' : '已连接 Supabase' }}</span>
             </div>
 
             <div class="space-y-4">
+                <p v-if="!ordersLoading && availableOrders.length === 0" class="text-center text-sm text-gray-400 py-8">暂无待接订单，点击右下角发布</p>
                 <div v-for="order in availableOrders" :key="order.id" class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 relative overflow-hidden">
                     <div class="absolute top-0 right-0 bg-bnu-gold text-white text-xs px-3 py-1 rounded-bl-lg font-bold">
                         ￥{{ order.price }}
                     </div>
                     <div class="flex items-start justify-between mb-2 mt-1">
                         <div>
-                            <span class="bg-red-50 text-red-600 text-xs px-2 py-1 rounded text-red-600 font-medium mr-2">
+                            <span class="bg-red-50 text-red-600 text-xs px-2 py-1 rounded font-medium mr-2">
                                 <i class="fa-solid fa-hospital mr-1"></i>看病陪诊
                             </span>
                             <span class="text-sm text-gray-500">{{ order.hospital }}</span>
@@ -51,7 +68,7 @@
                         <span class="bg-gray-100 px-2 py-1 rounded-md text-xs text-gray-600">
                             <i class="fa-solid fa-venus-mars mr-1"></i>{{ order.gender }}
                         </span>
-                        <span v-for="tag in order.tags" class="bg-bnu-light text-bnu-green px-2 py-1 rounded-md text-xs">
+                        <span v-for="tag in order.tags" :key="tag" class="bg-bnu-light text-bnu-green px-2 py-1 rounded-md text-xs">
                             {{ tag }}
                         </span>
                     </div>
@@ -60,21 +77,21 @@
                         "{{ order.note || '无特殊备注' }}"
                     </p>
                     
-                    <button @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95">
+                    <button type="button" @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95">
                         立即抢单
                     </button>
                 </div>
             </div>
 
-            <button @click="showPublishModal = true" class="absolute bottom-6 right-6 w-14 h-14 bg-bnu-gold text-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-105 transition transform z-20">
+            <button type="button" @click="showPublishModal = true" class="absolute bottom-6 right-6 w-14 h-14 bg-bnu-gold text-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:scale-105 transition transform z-20">
                 <i class="fa-solid fa-plus"></i>
             </button>
         </main>
 
-        <main v-if="currentView === 'chat'" class="flex-1 flex flex-col bg-gray-50">
+        <main v-else-if="session && currentView === 'chat' && activeOrder" class="flex-1 flex flex-col bg-gray-50">
             <div :class="['p-2 text-center text-sm font-bold shadow-sm transition-colors', timeLeft < 60 ? 'bg-red-100 text-red-600' : 'bg-bnu-light text-bnu-green']">
                 <i class="fa-regular fa-clock mr-1"></i>确认倒计时：{{ formattedTime }}
-                <p class="text-xs font-normal opacity-80 mt-1">超时将自动释放订单，赏金原路退回</p>
+                <p class="text-xs font-normal opacity-80 mt-1">超时将自动释放订单回大厅</p>
             </div>
 
             <div class="bg-white p-3 m-3 rounded-lg shadow-sm border border-gray-200">
@@ -82,8 +99,8 @@
                     <div class="flex items-center">
                         <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 mr-3">校友</div>
                         <div>
-                            <div class="text-sm font-bold">教育学部 · 已认证 <i class="fa-solid fa-circle-check text-blue-500"></i></div>
-                            <div class="text-xs text-gray-500">陪诊经验 12 次 | 评分 4.9</div>
+                            <div class="text-sm font-bold">陪同校友 <i class="fa-solid fa-circle-check text-blue-500"></i></div>
+                            <div class="text-xs text-gray-500">订单沟通中</div>
                         </div>
                     </div>
                     <div class="text-right">
@@ -94,7 +111,7 @@
             </div>
 
             <div class="flex-1 overflow-y-auto p-4 space-y-4">
-                <div class="text-center text-xs text-gray-400 my-2">🛡️ 聊天已加密，严禁私下交易</div>
+                <div class="text-center text-xs text-gray-400 my-2">聊天为演示，成交以平台订单状态为准</div>
                 
                 <div v-for="(msg, index) in chatMessages" :key="index" :class="['flex', msg.isMine ? 'justify-end' : 'justify-start']">
                     <div :class="['max-w-[75%] p-3 rounded-2xl text-sm', msg.isMine ? 'bg-bnu-green text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm']">
@@ -105,14 +122,14 @@
 
             <div class="bg-white p-3 border-t">
                 <div class="flex gap-2 mb-3 overflow-x-auto pb-1">
-                    <button @click="sendQuickMsg('能在校医院门口见吗？')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200">能在校医院门口见吗？</button>
-                    <button @click="sendQuickMsg('我需要借轮椅')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200">我需要借轮椅</button>
+                    <button type="button" @click="sendQuickMsg('能在校医院门口见吗？')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200">能在校医院门口见吗？</button>
+                    <button type="button" @click="sendQuickMsg('我需要借轮椅')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200">我需要借轮椅</button>
                 </div>
                 <div class="flex gap-2">
-                    <button @click="cancelOrder" class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200">
+                    <button type="button" @click="cancelOrder" class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200">
                         不太合适
                     </button>
-                    <button @click="confirmEscort" class="flex-[2] bg-bnu-green text-white py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-green-800">
+                    <button type="button" @click="confirmEscort" class="flex-[2] bg-bnu-green text-white py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-green-800">
                         确认由他/她陪同 (锁单)
                     </button>
                 </div>
@@ -120,11 +137,30 @@
         </main>
 
         <transition name="fade">
+            <div v-if="showAuthModal" class="absolute inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" @click.self="showAuthModal = false">
+                <div class="bg-white rounded-xl p-5 w-full max-w-sm shadow-xl" @click.stop>
+                    <h3 class="text-lg font-bold text-gray-800 mb-3">登录账号</h3>
+                    <p class="text-xs text-gray-500 mb-3">使用 Supabase 已开启的邮箱登录（Authentication → Providers → Email）</p>
+                    <div class="space-y-3">
+                        <input v-model="authEmail" type="email" placeholder="邮箱" class="w-full border rounded-lg p-2 text-sm border-gray-300" autocomplete="email">
+                        <input v-model="authPassword" type="password" placeholder="密码" class="w-full border rounded-lg p-2 text-sm border-gray-300" autocomplete="current-password">
+                        <p v-if="authError" class="text-xs text-red-600">{{ authError }}</p>
+                        <div class="flex gap-2">
+                            <button type="button" :disabled="authBusy" @click="signIn" class="flex-1 bg-bnu-green text-white py-2 rounded-lg text-sm font-medium">登录</button>
+                            <button type="button" :disabled="authBusy" @click="signUp" class="flex-1 border border-bnu-green text-bnu-green py-2 rounded-lg text-sm font-medium">注册</button>
+                        </div>
+                    </div>
+                    <button type="button" class="mt-4 text-xs text-gray-400 w-full" @click="showAuthModal = false">关闭</button>
+                </div>
+            </div>
+        </transition>
+
+        <transition name="fade">
             <div v-if="showPublishModal" class="absolute inset-0 bg-black/50 z-50 flex items-end justify-center">
                 <div class="bg-white w-full rounded-t-2xl p-5 h-[85vh] overflow-y-auto flex flex-col">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="text-lg font-bold text-gray-800">发布看病陪诊</h3>
-                        <button @click="showPublishModal = false" class="text-gray-400 hover:text-gray-700"><i class="fa-solid fa-xmark text-xl"></i></button>
+                        <button type="button" @click="showPublishModal = false" class="text-gray-400 hover:text-gray-700"><i class="fa-solid fa-xmark text-xl"></i></button>
                     </div>
 
                     <div class="space-y-4 flex-1">
@@ -174,15 +210,15 @@
                             <label class="block text-sm font-medium text-gray-700 mb-2">自定义出价 (元)</label>
                             <div class="relative">
                                 <span class="absolute left-3 top-2 text-gray-500">￥</span>
-                                <input type="number" v-model="newForm.price" class="w-full border-gray-300 rounded-lg shadow-sm p-2 pl-8 border bg-gray-50 text-lg font-bold text-bnu-gold">
+                                <input type="number" v-model.number="newForm.price" min="1" step="1" class="w-full border-gray-300 rounded-lg shadow-sm p-2 pl-8 border bg-gray-50 text-lg font-bold text-bnu-gold">
                             </div>
-                            <p class="text-xs text-gray-400 mt-1">包含 5% 平台保障费及校友意外险</p>
+                            <p class="text-xs text-gray-400 mt-1">赏金以分为单位存入数据库 (price_cents)</p>
                         </div>
                     </div>
 
                     <div class="mt-4 pt-4 border-t">
-                        <button @click="submitOrder" class="w-full bg-bnu-green text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-800 transition">
-                            托管赏金并发布 ￥{{ newForm.price }}
+                        <button type="button" @click="submitOrder" class="w-full bg-bnu-green text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-800 transition">
+                            发布订单 ￥{{ newForm.price }}
                         </button>
                     </div>
                 </div>
@@ -195,39 +231,67 @@
                     <i class="fa-solid fa-check text-4xl text-green-500"></i>
                 </div>
                 <h2 class="text-2xl font-bold text-gray-800 mb-2">订单已锁定</h2>
-                <p class="text-gray-500 mb-8">赏金已托管至平台。<br>地陪校友已收到您的精准定位，正在赶来！</p>
-                <button @click="resetApp" class="w-full border border-bnu-green text-bnu-green py-3 rounded-xl font-bold">
+                <p class="text-gray-500 mb-8">订单状态已在数据库中更新为已锁定。</p>
+                <button type="button" @click="resetApp" class="w-full border border-bnu-green text-bnu-green py-3 rounded-xl font-bold">
                     返回大厅
                 </button>
             </div>
         </transition>
     </div>
 
+    <script src="./js/supabase-config.js"></script>
+    <script src="./node_modules/@supabase/supabase-js/dist/umd/supabase.js"></script>
     <script src="./node_modules/vue/dist/vue.global.prod.js"></script>
     <script>
-        const { createApp, ref, computed, onUnmounted } = Vue;
+        const { createApp, ref, computed, onUnmounted, watch } = Vue;
+
+        const mapOrderRow = (r) => ({
+            id: r.id,
+            publisher_id: r.publisher_id,
+            hospital: r.hospital,
+            gender: r.gender_pref,
+            tags: r.tags || [],
+            price: Math.max(1, Math.round(Number(r.price_cents) / 100)),
+            note: r.note,
+            status: r.status,
+            taker_id: r.taker_id,
+        });
 
         createApp({
             setup() {
-                // 面向对象的数据抽象：模拟数据库初始状态
-                const availableOrders = ref([
-                    { id: 1, hospital: '北医三院', gender: '仅限女生', tags: ['细心稳重', '情绪稳定'], price: 60, note: '嗓子发炎不能说话，需帮忙和医生沟通', status: 'WAITING' },
-                    { id: 2, hospital: '积水潭医院', gender: '不限性别', tags: ['医科背景优先', '力量型'], price: 100, note: '骨折复查，需要推轮椅上下坡', status: 'WAITING' }
-                ]);
+                const cfg = window.__SUPABASE_CONFIG__ || {};
+                const configError = ref('');
+                if (!cfg.url || !cfg.anonKey) {
+                    configError.value = '请编辑 js/supabase-config.js 填入 url 与 anonKey，或在 Netlify 设置 SUPABASE_URL、SUPABASE_ANON_KEY 后重新构建。';
+                }
+
+                const sb = cfg.url && cfg.anonKey ? supabase.createClient(cfg.url, cfg.anonKey) : null;
+
+                const session = ref(null);
+                const authReady = ref(false);
+                const showAuthModal = ref(false);
+                const authEmail = ref('');
+                const authPassword = ref('');
+                const authError = ref('');
+                const authBusy = ref(false);
+
+                const availableOrders = ref([]);
+                const ordersLoading = ref(false);
+                let ordersChannel = null;
 
                 const currentView = ref('hall');
                 const showPublishModal = ref(false);
                 const showSuccess = ref(false);
-                
-                // 表单数据
+
                 const availableTags = ['情绪稳定', '细心稳重', '健谈活跃', '医科背景优先', '边界感强', '力量型'];
                 const newForm = ref({ hospital: '北师大校医院', gender: '仅限女生', tags: [], note: '', price: 50 });
 
-                // 聊天系统状态
                 const activeOrder = ref(null);
                 const chatMessages = ref([]);
-                const timeLeft = ref(300); // 5分钟
+                const timeLeft = ref(300);
                 let timer = null;
+
+                const userEmail = computed(() => session.value?.user?.email || '');
 
                 const formattedTime = computed(() => {
                     const m = Math.floor(timeLeft.value / 60).toString().padStart(2, '0');
@@ -235,79 +299,247 @@
                     return `${m}:${s}`;
                 });
 
-                // 方法定义
+                const ensureProfile = async (user) => {
+                    if (!sb || !user) return;
+                    const { data } = await sb.from('profiles').select('id').eq('id', user.id).maybeSingle();
+                    if (!data) {
+                        const name = (user.user_metadata?.full_name || user.email?.split('@')[0] || '用户').slice(0, 32);
+                        await sb.from('profiles').insert({ id: user.id, display_name: name });
+                    }
+                };
+
+                const fetchOpenOrders = async () => {
+                    if (!sb || !session.value) return;
+                    ordersLoading.value = true;
+                    const uid = session.value.user.id;
+                    const { data, error } = await sb
+                        .from('orders')
+                        .select('*')
+                        .eq('status', 'open')
+                        .order('created_at', { ascending: false });
+                    ordersLoading.value = false;
+                    if (error) {
+                        console.error(error);
+                        return;
+                    }
+                    availableOrders.value = (data || [])
+                        .filter((o) => o.publisher_id !== uid)
+                        .map(mapOrderRow);
+                };
+
+                const subscribeOrders = () => {
+                    if (!sb || ordersChannel) return;
+                    ordersChannel = sb
+                        .channel('orders-hall')
+                        .on(
+                            'postgres_changes',
+                            { event: '*', schema: 'public', table: 'orders' },
+                            () => { fetchOpenOrders(); }
+                        )
+                        .subscribe();
+                };
+
+                const unsubscribeOrders = () => {
+                    if (ordersChannel && sb) {
+                        sb.removeChannel(ordersChannel);
+                        ordersChannel = null;
+                    }
+                };
+
+                watch(session, (s) => {
+                    if (s) {
+                        fetchOpenOrders();
+                        subscribeOrders();
+                    } else {
+                        unsubscribeOrders();
+                        availableOrders.value = [];
+                    }
+                });
+
+                (async () => {
+                    if (!sb) {
+                        authReady.value = true;
+                        return;
+                    }
+                    const { data: { session: s } } = await sb.auth.getSession();
+                    session.value = s;
+                    if (s?.user) await ensureProfile(s.user);
+                    authReady.value = true;
+                    sb.auth.onAuthStateChange(async (_event, s2) => {
+                        session.value = s2;
+                        if (s2?.user) await ensureProfile(s2.user);
+                    });
+                })();
+
+                const signIn = async () => {
+                    authError.value = '';
+                    if (!sb) return;
+                    authBusy.value = true;
+                    const { error } = await sb.auth.signInWithPassword({
+                        email: authEmail.value.trim(),
+                        password: authPassword.value,
+                    });
+                    authBusy.value = false;
+                    if (error) authError.value = error.message;
+                    else showAuthModal.value = false;
+                };
+
+                const signUp = async () => {
+                    authError.value = '';
+                    if (!sb) return;
+                    authBusy.value = true;
+                    const { error } = await sb.auth.signUp({
+                        email: authEmail.value.trim(),
+                        password: authPassword.value,
+                    });
+                    authBusy.value = false;
+                    if (error) authError.value = error.message;
+                    else authError.value = '若项目开启「邮箱确认」，请查收邮件后再登录。';
+                };
+
+                const logout = async () => {
+                    if (sb) await sb.auth.signOut();
+                    session.value = null;
+                    currentView.value = 'hall';
+                };
+
                 const toggleTag = (tag) => {
                     const index = newForm.value.tags.indexOf(tag);
                     if (index > -1) newForm.value.tags.splice(index, 1);
                     else newForm.value.tags.push(tag);
                 };
 
-                const submitOrder = () => {
-                    if(!newForm.value.price) return alert('请输入价格');
-                    availableOrders.value.unshift({
-                        id: Date.now(),
-                        ...newForm.value,
-                        status: 'WAITING'
+                const submitOrder = async () => {
+                    if (!sb || !session.value) return;
+                    const priceCents = Math.round(Number(newForm.value.price) * 100);
+                    if (!priceCents || priceCents < 1) {
+                        alert('请输入有效的金额');
+                        return;
+                    }
+                    const { error } = await sb.from('orders').insert({
+                        publisher_id: session.value.user.id,
+                        hospital: newForm.value.hospital,
+                        gender_pref: newForm.value.gender,
+                        tags: newForm.value.tags,
+                        price_cents: priceCents,
+                        note: newForm.value.note || null,
                     });
+                    if (error) {
+                        alert(error.message);
+                        return;
+                    }
                     showPublishModal.value = false;
-                    // 重置表单
                     newForm.value = { hospital: '北师大校医院', gender: '仅限女生', tags: [], note: '', price: 50 };
+                    await fetchOpenOrders();
                 };
 
-                const grabOrder = (order) => {
-                    activeOrder.value = order;
+                const grabOrder = async (order) => {
+                    if (!sb) return;
+                    const { data, error } = await sb.rpc('take_order', { p_order_id: order.id });
+                    if (error) {
+                        alert(error.message);
+                        return;
+                    }
+                    activeOrder.value = mapOrderRow(data);
                     currentView.value = 'chat';
                     chatMessages.value = [
-                        { text: `你好，我是抢单的校友，我的性格偏好符合您的要求，可以沟通一下细节吗？`, isMine: false }
+                        { text: '你好，我已接单，我们可以沟通一下细节吗？', isMine: false },
                     ];
-                    
-                    // 启动倒计时逻辑
                     timeLeft.value = 300;
                     clearInterval(timer);
                     timer = setInterval(() => {
-                        timeLeft.value--;
+                        timeLeft.value -= 1;
                         if (timeLeft.value <= 0) {
                             clearInterval(timer);
-                            alert("沟通超时，订单已自动释放回大厅");
-                            cancelOrder();
+                            alert('沟通超时，订单将释放回大厅');
+                            void releaseAndExit();
                         }
                     }, 1000);
                 };
 
-                const sendQuickMsg = (text) => {
-                    chatMessages.value.push({ text, isMine: true });
-                    // 模拟对方回复
-                    setTimeout(() => {
-                        chatMessages.value.push({ text: "收到，没问题！随时可以出发。", isMine: false });
-                    }, 1000);
-                };
-
-                const confirmEscort = () => {
+                const releaseAndExit = async () => {
+                    if (!sb || !activeOrder.value) return;
+                    await sb.rpc('release_order', { p_order_id: activeOrder.value.id }).catch(() => {});
                     clearInterval(timer);
-                    showSuccess.value = true;
-                    // 在真实后端中，这里会调用 API 修改订单状态为 LOCKED
-                    availableOrders.value = availableOrders.value.filter(o => o.id !== activeOrder.value.id);
-                };
-
-                const cancelOrder = () => {
-                    clearInterval(timer);
+                    timer = null;
                     currentView.value = 'hall';
                     activeOrder.value = null;
+                    await fetchOpenOrders();
+                };
+
+                const sendQuickMsg = (text) => {
+                    chatMessages.value.push({ text, isMine: true });
+                    setTimeout(() => {
+                        chatMessages.value.push({ text: '收到，没问题！随时可以出发。', isMine: false });
+                    }, 800);
+                };
+
+                const confirmEscort = async () => {
+                    if (!sb || !activeOrder.value) return;
+                    clearInterval(timer);
+                    timer = null;
+                    const { error } = await sb.rpc('confirm_order', { p_order_id: activeOrder.value.id });
+                    if (error) {
+                        alert(error.message);
+                        return;
+                    }
+                    showSuccess.value = true;
+                    await fetchOpenOrders();
+                };
+
+                const cancelOrder = async () => {
+                    if (activeOrder.value?.status === 'taken') await releaseAndExit();
+                    else {
+                        clearInterval(timer);
+                        currentView.value = 'hall';
+                        activeOrder.value = null;
+                    }
                 };
 
                 const resetApp = () => {
                     showSuccess.value = false;
                     currentView.value = 'hall';
+                    activeOrder.value = null;
                 };
 
-                onUnmounted(() => { clearInterval(timer); });
+                onUnmounted(() => {
+                    clearInterval(timer);
+                    unsubscribeOrders();
+                });
 
                 return {
-                    availableOrders, currentView, showPublishModal, showSuccess,
-                    availableTags, newForm, toggleTag, submitOrder,
-                    grabOrder, activeOrder, chatMessages, timeLeft, formattedTime, sendQuickMsg, confirmEscort, cancelOrder, resetApp
+                    configError,
+                    session,
+                    authReady,
+                    userEmail,
+                    showAuthModal,
+                    authEmail,
+                    authPassword,
+                    authError,
+                    authBusy,
+                    signIn,
+                    signUp,
+                    logout,
+                    availableOrders,
+                    ordersLoading,
+                    currentView,
+                    showPublishModal,
+                    showSuccess,
+                    availableTags,
+                    newForm,
+                    toggleTag,
+                    submitOrder,
+                    grabOrder,
+                    activeOrder,
+                    chatMessages,
+                    timeLeft,
+                    formattedTime,
+                    sendQuickMsg,
+                    confirmEscort,
+                    cancelOrder,
+                    resetApp,
                 };
-            }
+            },
         }).mount('#app');
     </script>
 

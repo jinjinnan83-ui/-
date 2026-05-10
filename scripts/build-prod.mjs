@@ -14,6 +14,7 @@ const main = async () => {
   await rm(dist, { recursive: true, force: true });
   await ensureDir(resolve(dist, "assets"));
   await ensureDir(resolve(dist, "vendor/vue"));
+  await ensureDir(resolve(dist, "vendor/supabase"));
   await ensureDir(resolve(dist, "vendor/fontawesome/css"));
 
   const indexPath = resolve(root, "index.html");
@@ -22,6 +23,10 @@ const main = async () => {
     .replace(
       "./node_modules/@fortawesome/fontawesome-free/css/all.min.css",
       "./vendor/fontawesome/css/all.min.css"
+    )
+    .replace(
+      "./node_modules/@supabase/supabase-js/dist/umd/supabase.js",
+      "./vendor/supabase/supabase.js"
     )
     .replace(
       "./node_modules/vue/dist/vue.global.prod.js",
@@ -43,6 +48,12 @@ const main = async () => {
     resolve(dist, "vendor/fontawesome/webfonts"),
     { recursive: true }
   );
+  await cp(
+    resolve(root, "node_modules/@supabase/supabase-js/dist/umd/supabase.js"),
+    resolve(dist, "vendor/supabase/supabase.js")
+  );
+
+  await import(new URL("./write-supabase-config.mjs", import.meta.url));
 
   console.log("Production build ready at ./dist");
 };
