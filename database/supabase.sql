@@ -41,7 +41,13 @@ create trigger on_auth_user_created
 -- ---------------------------------------------------------------------------
 -- 订单
 -- ---------------------------------------------------------------------------
-create type public.order_status as enum ('open', 'taken', 'locked', 'cancelled');
+-- 重复执行脚本时 enum 可能已存在，忽略「已存在」错误即可
+do $$
+begin
+  create type public.order_status as enum ('open', 'taken', 'locked', 'cancelled');
+exception
+  when duplicate_object then null;
+end $$;
 
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
@@ -83,8 +89,15 @@ create trigger orders_set_updated_at
   for each row execute procedure public.set_orders_updated_at();
 
 -- ---------------------------------------------------------------------------
--- 行级安全策略
+-- 行级安全策略（重复执行时先删再建）
 -- ---------------------------------------------------------------------------
+
+drop policy if exists profiles_select_own on public.profiles;
+drop policy if exists profiles_update_own on public.profiles;
+drop policy if exists profiles_insert_own on public.profiles;
+drop policy if exists orders_select_visible on public.orders;
+drop policy if exists orders_insert_publisher on public.orders;
+drop policy if exists orders_cancel_by_publisher on public.orders;
 
 -- profiles：本人可读可改自己的资料
 create policy profiles_select_own
@@ -243,4 +256,9 @@ grant execute on function public.release_order(uuid) to authenticated;
 -- ---------------------------------------------------------------------------
 -- Realtime：大厅列表可订阅 orders 变更（在 Dashboard 中也可手动勾选表）
 -- ---------------------------------------------------------------------------
-alter publication supabase_realtime add table public.orders;
+do $$
+begin
+  alter publication supabase_realtime add table public.orders;
+exception
+  when duplicate_object then null;
+end $$;
