@@ -116,19 +116,23 @@ create trigger orders_set_updated_at
   for each row execute procedure public.set_orders_updated_at();
 
 -- ============================================================================
--- 3. 行级安全策略 — 关闭 RLS（答题登录无 auth.uid()，由前端自行校验）
+-- 3. 行级安全策略 — 允许匿名读写（答题登录无 auth.uid()）
+--    部分 Supabase 项目不支持 disable RLS，改为创建全通策略
 -- ============================================================================
 
-alter table public.profiles disable row level security;
-alter table public.orders disable row level security;
-
--- 删除旧的 RLS 策略（已无用）
+-- 先删除所有旧策略
 drop policy if exists profiles_select_own on public.profiles;
 drop policy if exists profiles_update_own on public.profiles;
 drop policy if exists profiles_insert_own on public.profiles;
+drop policy if exists profiles_all on public.profiles;
 drop policy if exists orders_select_visible on public.orders;
 drop policy if exists orders_insert_publisher on public.orders;
 drop policy if exists orders_cancel_by_publisher on public.orders;
+drop policy if exists orders_all on public.orders;
+
+-- 创建允许 anon / authenticated 全操作的新策略
+create policy profiles_all on public.profiles for all to anon, authenticated using (true) with check (true);
+create policy orders_all on public.orders for all to anon, authenticated using (true) with check (true);
 
 -- ============================================================================
 -- 4. RPC 函数：接受 p_user_id 参数，不再依赖 auth.uid()
