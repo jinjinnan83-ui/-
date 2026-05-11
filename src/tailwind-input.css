@@ -26,3 +26,11 @@ body {
   background: #cbd5e1;
   border-radius: 4px;
 }
+
+/* 加载动画 (兜底, Tailwind animate-spin 也可用) */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
