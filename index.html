@@ -19,12 +19,12 @@
       <div class="font-bold text-lg tracking-wider shrink-0">
         <i class="fa-solid fa-leaf text-bnu-gold mr-2" aria-hidden="true"></i>师友伴
       </div>
-      <div v-if="session" class="flex items-center gap-2 text-xs min-w-0">
-        <span class="truncate max-w-[7rem] opacity-90" :title="userEmail">{{ userEmail }}</span>
+      <div v-if="isLoggedIn" class="flex items-center gap-2 text-xs min-w-0">
+        <span class="truncate max-w-[7rem] opacity-90">{{ currentNickname }}</span>
         <button type="button" @click="logout" class="bg-white/20 px-2 py-1 rounded shrink-0" aria-label="退出登录">退出</button>
       </div>
-      <div v-else-if="authReady" class="flex items-center gap-2 text-xs shrink-0">
-        <button type="button" @click="showAuthModal = true" class="bg-white/20 px-3 py-1 rounded-full" aria-label="打开登录注册窗口">登录 / 注册</button>
+      <div v-else class="flex items-center gap-2 text-xs shrink-0">
+        <button type="button" @click="showQuizModal = true" class="bg-white/20 px-3 py-1 rounded-full" aria-label="答题登录">答题登录</button>
       </div>
     </header>
 
@@ -54,29 +54,24 @@
     </div>
 
     <!-- ============================================================ -->
-    <!--  LOADING / AUTH GATE                                         -->
+    <!--  LOGIN GATE (未登录时显示)                                     -->
     <!-- ============================================================ -->
-    <div v-if="!authReady" class="flex-1 flex flex-col items-center justify-center text-gray-500 text-sm p-6 gap-3" role="status" aria-label="正在连接">
-      <div class="w-8 h-8 border-4 border-bnu-light border-t-bnu-green rounded-full animate-spin"></div>
-      <span>正在连接…</span>
-    </div>
-
-    <div v-else-if="!session" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
-      <i class="fa-solid fa-user-shield text-5xl text-gray-300 mb-4" aria-hidden="true"></i>
-      <p class="mb-4 text-sm">请先登录后再使用抢单大厅</p>
-      <button type="button" @click="showAuthModal = true" class="bg-bnu-green text-white px-6 py-2 rounded-lg font-medium hover:bg-green-800 transition" aria-label="打开登录注册窗口">登录 / 注册</button>
+    <div v-if="!isLoggedIn" class="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
+      <i class="fa-solid fa-user-graduate text-5xl text-gray-300 mb-4" aria-hidden="true"></i>
+      <p class="mb-2 text-sm font-medium text-gray-700">北师大校友验证</p>
+      <p class="mb-4 text-xs text-gray-400">回答一道简单的北师知识题即可加入</p>
+      <button type="button" @click="showQuizModal = true" class="bg-bnu-green text-white px-6 py-2 rounded-lg font-medium hover:bg-green-800 transition" aria-label="开始答题">开始答题</button>
     </div>
 
     <!-- ============================================================ -->
     <!--  HALL VIEW                                                   -->
     <!-- ============================================================ -->
-    <main v-else-if="session && currentView === 'hall'" class="flex-1 overflow-y-auto p-4 bg-gray-50 pb-20" role="main" aria-label="抢单大厅">
+    <main v-else-if="isLoggedIn && currentView === 'hall'" class="flex-1 overflow-y-auto p-4 bg-gray-50 pb-20" role="main" aria-label="抢单大厅">
       <div class="flex justify-between items-center mb-4">
         <h2 class="text-gray-800 font-bold text-lg border-l-4 border-bnu-green pl-2">抢单大厅</h2>
         <span class="text-xs text-gray-500" aria-live="polite">{{ ordersLoading ? '加载中…' : '已连接 Supabase' }}</span>
       </div>
 
-      <!-- loading skeleton -->
       <div v-if="ordersLoading" class="space-y-4">
         <div v-for="n in 3" :key="n" class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 animate-pulse">
           <div class="h-4 bg-gray-200 rounded w-1/3 mb-3"></div>
@@ -130,7 +125,7 @@
     <!-- ============================================================ -->
     <!--  CHAT VIEW                                                   -->
     <!-- ============================================================ -->
-    <main v-else-if="session && currentView === 'chat' && activeOrder" class="flex-1 flex flex-col bg-gray-50" role="main" aria-label="订单沟通">
+    <main v-else-if="isLoggedIn && currentView === 'chat' && activeOrder" class="flex-1 flex flex-col bg-gray-50" role="main" aria-label="订单沟通">
       <div :class="['p-2 text-center text-sm font-bold shadow-sm transition-colors', timeLeft < 60 ? 'bg-red-100 text-red-600' : 'bg-bnu-light text-bnu-green']" aria-live="polite" :aria-label="'剩余时间 ' + formattedTime">
         <i class="fa-regular fa-clock mr-1" aria-hidden="true"></i>确认倒计时：{{ formattedTime }}
         <p class="text-xs font-normal opacity-80 mt-1">超时将自动释放订单回大厅</p>
@@ -179,33 +174,54 @@
     </main>
 
     <!-- ============================================================ -->
-    <!--  AUTH MODAL                                                  -->
+    <!--  QUIZ MODAL                                                  -->
     <!-- ============================================================ -->
     <transition name="fade">
-      <div v-if="showAuthModal" class="absolute inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" @click.self="showAuthModal = false" role="dialog" aria-modal="true" aria-label="登录注册">
-        <div class="bg-white rounded-xl p-5 w-full max-w-sm shadow-xl" @click.stop>
-          <h3 class="text-lg font-bold text-gray-800 mb-3">登录账号</h3>
-          <p class="text-xs text-gray-500 mb-3">使用 Supabase 已开启的邮箱登录（Authentication → Providers → Email）</p>
-          <div class="space-y-3">
-            <div>
-              <label for="auth-email" class="sr-only">邮箱</label>
-              <input id="auth-email" v-model="authEmail" type="email" placeholder="邮箱" class="w-full border rounded-lg p-2 text-sm border-gray-300 focus:border-bnu-green focus:ring-1 focus:ring-bnu-green" autocomplete="email" @keyup.enter="signIn">
+      <div v-if="showQuizModal" class="absolute inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" @click.self="showQuizModal = false" role="dialog" aria-modal="true" aria-label="北师知识答题">
+        <div class="bg-white rounded-xl p-6 w-full max-w-sm shadow-xl" @click.stop>
+          <!-- 答完题后输入昵称 -->
+          <template v-if="quizPassed">
+            <h3 class="text-lg font-bold text-gray-800 mb-1">回答正确！</h3>
+            <p class="text-xs text-gray-500 mb-4">请输入你的昵称加入师友伴</p>
+            <div class="space-y-3">
+              <div>
+                <label for="nickname-input" class="sr-only">昵称</label>
+                <input id="nickname-input" v-model="nicknameInput" type="text" placeholder="你的昵称（最多12字）" maxlength="12" class="w-full border rounded-lg p-2 text-sm border-gray-300 focus:border-bnu-green focus:ring-1 focus:ring-bnu-green" @keyup.enter="confirmNickname">
+              </div>
+              <p v-if="nicknameError" class="text-xs text-red-600" role="alert">{{ nicknameError }}</p>
+              <button type="button" @click="confirmNickname" class="w-full bg-bnu-green text-white py-2 rounded-lg text-sm font-medium hover:bg-green-800 transition">
+                加入师友伴
+              </button>
             </div>
-            <div>
-              <label for="auth-password" class="sr-only">密码</label>
-              <input id="auth-password" v-model="authPassword" type="password" placeholder="密码" class="w-full border rounded-lg p-2 text-sm border-gray-300 focus:border-bnu-green focus:ring-1 focus:ring-bnu-green" autocomplete="current-password" @keyup.enter="signIn">
+          </template>
+
+          <!-- 答题界面 -->
+          <template v-else>
+            <div class="flex items-center gap-2 mb-4">
+              <i class="fa-solid fa-graduation-cap text-bnu-green text-xl" aria-hidden="true"></i>
+              <h3 class="text-lg font-bold text-gray-800">北师知识问答</h3>
             </div>
-            <p v-if="authError" class="text-xs" :class="authError.includes('成功') ? 'text-green-600' : 'text-red-600'" role="alert">{{ authError }}</p>
+            <p class="text-sm text-gray-600 mb-5 leading-relaxed">{{ QUIZ.question }}</p>
+            <div class="space-y-2 mb-4">
+              <button
+                v-for="opt in QUIZ.options" :key="opt.key"
+                type="button"
+                @click="selectedAnswer = opt.key"
+                :class="['w-full text-left px-4 py-2.5 rounded-lg border text-sm transition',
+                         selectedAnswer === opt.key ? 'border-bnu-green bg-bnu-light text-bnu-green font-medium' : 'border-gray-200 hover:border-gray-300']"
+              >
+                <span class="inline-block w-6 h-6 rounded-full bg-gray-100 text-center leading-6 text-xs mr-2 font-bold">{{ opt.key }}</span>
+                {{ opt.text }}
+              </button>
+            </div>
+            <p v-if="quizError" class="text-xs mb-3" :class="quizError.includes('不对') ? 'text-red-500' : 'text-red-600'" role="alert">{{ quizError }}</p>
             <div class="flex gap-2">
-              <button type="button" :disabled="authBusy" @click="signIn" class="flex-1 bg-bnu-green text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
-                {{ authBusy ? '登录中…' : '登录' }}
-              </button>
-              <button type="button" :disabled="authBusy" @click="signUp" class="flex-1 border border-bnu-green text-bnu-green py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
-                {{ authBusy ? '注册中…' : '注册' }}
+              <button type="button" class="flex-1 border border-gray-300 text-gray-500 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition" @click="showQuizModal = false">关闭</button>
+              <button type="button" @click="checkAnswer" class="flex-1 bg-bnu-green text-white py-2 rounded-lg text-sm font-medium hover:bg-green-800 transition">
+                确认答案
               </button>
             </div>
-          </div>
-          <button type="button" class="mt-4 text-xs text-gray-400 w-full hover:text-gray-600 transition" @click="showAuthModal = false">关闭</button>
+          </template>
         </div>
       </div>
     </transition>
@@ -222,7 +238,6 @@
           </div>
 
           <div class="space-y-4 flex-1">
-            <!-- hospital -->
             <div>
               <label for="publish-hospital" class="block text-sm font-medium text-gray-700 mb-2">就诊医院</label>
               <select id="publish-hospital" v-model="newForm.hospital" class="w-full border-gray-300 rounded-lg shadow-sm p-2 border bg-gray-50 focus:border-bnu-green focus:ring-1 focus:ring-bnu-green">
@@ -233,7 +248,6 @@
               </select>
             </div>
 
-            <!-- gender -->
             <fieldset>
               <legend class="block text-sm font-medium text-gray-700 mb-2">期望陪同性别</legend>
               <div class="flex gap-3">
@@ -249,7 +263,6 @@
               </div>
             </fieldset>
 
-            <!-- tags -->
             <fieldset>
               <legend class="block text-sm font-medium text-gray-700 mb-2">性格与特质 (多选)</legend>
               <div class="flex flex-wrap gap-2">
@@ -263,14 +276,12 @@
               </div>
             </fieldset>
 
-            <!-- note -->
             <div>
               <label for="publish-note" class="block text-sm font-medium text-gray-700 mb-2">病情简述 (方便地陪准备)</label>
               <textarea id="publish-note" v-model="newForm.note" rows="2" placeholder="如：脚踝扭伤需借轮椅…" :class="['w-full rounded-lg shadow-sm p-2 border bg-gray-50 focus:border-bnu-green text-sm', publishErrors.note ? 'border-red-300' : 'border-gray-300']"></textarea>
               <p v-if="publishErrors.note" class="text-xs text-red-500 mt-1">{{ publishErrors.note }}</p>
             </div>
 
-            <!-- price -->
             <div>
               <label for="publish-price" class="block text-sm font-medium text-gray-700 mb-2">自定义出价 (元)</label>
               <div class="relative">
@@ -278,12 +289,12 @@
                 <input id="publish-price" type="number" v-model.number="newForm.price" min="1" max="9999" step="1" :class="['w-full rounded-lg shadow-sm p-2 pl-8 border bg-gray-50 text-lg font-bold text-bnu-gold focus:border-bnu-green', publishErrors.price ? 'border-red-300' : 'border-gray-300']">
               </div>
               <p v-if="publishErrors.price" class="text-xs text-red-500 mt-1">{{ publishErrors.price }}</p>
-              <p v-else class="text-xs text-gray-400 mt-1">赏金以分为单位存入数据库 (price_cents)</p>
+              <p v-else class="text-xs text-gray-400 mt-1">赏金以分为单位存入数据库</p>
             </div>
           </div>
 
           <div class="mt-4 pt-4 border-t">
-            <button type="button" @click="submitOrder" class="w-full bg-bnu-green text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-800 transition disabled:opacity-50">
+            <button type="button" @click="submitOrder" class="w-full bg-bnu-green text-white py-3 rounded-xl font-bold shadow-lg hover:bg-green-800 transition">
               发布订单 ￥{{ newForm.price }}
             </button>
           </div>

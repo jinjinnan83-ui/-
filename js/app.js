@@ -1,11 +1,50 @@
-const { createApp, ref, computed, onUnmounted, watch, nextTick } = Vue;
+const { createApp, ref, computed, onUnmounted, watch } = Vue;
 
 /* ------------------------------------------------------------------ */
-/*  helper: map a DB order row to view shape                          */
+/*  localStorage helpers                                              */
+/* ------------------------------------------------------------------ */
+const LS_KEY = {
+  userId: 'shiyouban_user_id',
+  nickname: 'shiyouban_nickname',
+};
+
+const getOrCreateUserId = () => {
+  let id = localStorage.getItem(LS_KEY.userId);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(LS_KEY.userId, id);
+  }
+  return id;
+};
+
+const getSavedNickname = () => localStorage.getItem(LS_KEY.nickname) || '';
+const saveNickname = (name) => localStorage.setItem(LS_KEY.nickname, name);
+const clearIdentity = () => {
+  localStorage.removeItem(LS_KEY.userId);
+  localStorage.removeItem(LS_KEY.nickname);
+};
+
+/* ------------------------------------------------------------------ */
+/*  quiz                                                              */
+/* ------------------------------------------------------------------ */
+const QUIZ = {
+  question: '北师大的天使是什么？',
+  options: [
+    { key: 'A', text: '乌鸦' },
+    { key: 'B', text: '天鹅' },
+    { key: 'C', text: '天使' },
+    { key: 'D', text: '鲁迅' },
+  ],
+  answer: 'A',
+};
+
+/* ------------------------------------------------------------------ */
+/*  map a DB order row to view shape                                  */
 /* ------------------------------------------------------------------ */
 const mapOrderRow = (r) => ({
   id: r.id,
   publisher_id: r.publisher_id,
+  publisher_name: r.publisher_name || '校友',
   hospital: r.hospital,
   gender: r.gender_pref,
   tags: r.tags || [],
@@ -16,11 +55,11 @@ const mapOrderRow = (r) => ({
 });
 
 /* ------------------------------------------------------------------ */
-/*  toast notification system                                         */
+/*  toast notification                                                */
 /* ------------------------------------------------------------------ */
 const toast = (() => {
   const message = ref('');
-  const type = ref('info');   // info | success | error
+  const type = ref('info');
   const visible = ref(false);
   let timer = null;
 
@@ -44,19 +83,26 @@ createApp({
     const cfg = window.__SUPABASE_CONFIG__ || {};
     const configError = ref('');
     if (!cfg.url || !cfg.anonKey) {
-      configError.value = '请编辑 js/supabase-config.js 填入 url 与 anonKey，或在 Netlify 设置 SUPABASE_URL、SUPABASE_ANON_KEY 后重新构建。';
+      configError.value = '请编辑 js/supabase-config.js 填入 url 与 anonKey。';
     }
 
     const sb = cfg.url && cfg.anonKey ? supabase.createClient(cfg.url, cfg.anonKey) : null;
 
-    /* ---- auth state ---- */
-    const session = ref(null);
-    const authReady = ref(false);
-    const showAuthModal = ref(false);
-    const authEmail = ref('');
-    const authPassword = ref('');
-    const authError = ref('');
-    const authBusy = ref(false);
+    /* ---- user identity (localStorage) ---- */
+    const currentUserId = ref(getOrCreateUserId());
+    const currentNickname = ref(getSavedNickname());
+    const isLoggedIn = computed(() => !!currentNickname.value);
+
+    /* ---- quiz flow ---- */
+    const showQuizModal = ref(false);
+    const selectedAnswer = ref('');
+    const quizError = ref('');
+    const quizPassed = ref(false);
+
+    /* ---- nickname flow ---- */
+    const showNicknameModal = ref(false);
+    const nicknameInput = ref('');
+    const nicknameError = ref('');
 
     /* ---- orders ---- */
     const availableOrders = ref([]);
@@ -80,29 +126,16 @@ createApp({
     let lastVisibleTime = null;
 
     /* ---- computed ---- */
-    const userEmail = computed(() => session.value?.user?.email || '');
-
     const formattedTime = computed(() => {
       const m = Math.floor(timeLeft.value / 60).toString().padStart(2, '0');
       const s = (timeLeft.value % 60).toString().padStart(2, '0');
       return `${m}:${s}`;
     });
 
-    /* ---- profile ---- */
-    const ensureProfile = async (user) => {
-      if (!sb || !user) return;
-      const { data } = await sb.from('profiles').select('id').eq('id', user.id).maybeSingle();
-      if (!data) {
-        const name = (user.user_metadata?.full_name || user.email?.split('@')[0] || '用户').slice(0, 32);
-        await sb.from('profiles').insert({ id: user.id, display_name: name });
-      }
-    };
-
     /* ---- orders crud ---- */
     const fetchOpenOrders = async () => {
-      if (!sb || !session.value) return;
+      if (!sb || !isLoggedIn.value) return;
       ordersLoading.value = true;
-      const uid = session.value.user.id;
       const { data, error } = await sb
         .from('orders')
         .select('*')
@@ -114,7 +147,7 @@ createApp({
         return;
       }
       availableOrders.value = (data || [])
-        .filter((o) => o.publisher_id !== uid)
+        .filter((o) => o.publisher_id !== currentUserId.value)
         .map(mapOrderRow);
     };
 
@@ -137,8 +170,8 @@ createApp({
       }
     };
 
-    watch(session, (s) => {
-      if (s) {
+    watch(isLoggedIn, (loggedIn) => {
+      if (loggedIn) {
         fetchOpenOrders();
         subscribeOrders();
       } else {
@@ -147,83 +180,73 @@ createApp({
       }
     });
 
-    /* ---- init ---- */
+    // init: auto-login if localStorage has nickname
     (async () => {
-      if (!sb) {
-        authReady.value = true;
-        return;
+      if (isLoggedIn.value) {
+        await fetchOpenOrders();
+        subscribeOrders();
       }
-      const { data: { session: s } } = await sb.auth.getSession();
-      session.value = s;
-      if (s?.user) await ensureProfile(s.user);
-      authReady.value = true;
-      sb.auth.onAuthStateChange(async (_event, s2) => {
-        session.value = s2;
-        if (s2?.user) await ensureProfile(s2.user);
-      });
     })();
 
-    /* ---- auth ---- */
-    const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-    const signIn = async () => {
-      authError.value = '';
-      if (!sb) return;
-      if (!validateEmail(authEmail.value.trim())) {
-        authError.value = '请输入有效的邮箱地址';
+    /* ---- quiz ---- */
+    const checkAnswer = () => {
+      quizError.value = '';
+      if (!selectedAnswer.value) {
+        quizError.value = '请选择一个选项';
         return;
       }
-      if (!authPassword.value) {
-        authError.value = '请输入密码';
-        return;
-      }
-      authBusy.value = true;
-      const { error } = await sb.auth.signInWithPassword({
-        email: authEmail.value.trim(),
-        password: authPassword.value,
-      });
-      authBusy.value = false;
-      if (error) authError.value = error.message;
-      else {
-        authEmail.value = '';
-        authPassword.value = '';
-        showAuthModal.value = false;
+      if (selectedAnswer.value === QUIZ.answer) {
+        quizPassed.value = true;
+      } else {
+        quizError.value = '答案不对哦，再想想北师大的校园特色吧～';
+        selectedAnswer.value = '';
       }
     };
 
-    const signUp = async () => {
-      authError.value = '';
-      if (!sb) return;
-      if (!validateEmail(authEmail.value.trim())) {
-        authError.value = '请输入有效的邮箱地址';
+    const retryQuiz = () => {
+      selectedAnswer.value = '';
+      quizError.value = '';
+      quizPassed.value = false;
+    };
+
+    /* ---- nickname ---- */
+    const confirmNickname = async () => {
+      const name = nicknameInput.value.trim();
+      nicknameError.value = '';
+      if (!name) {
+        nicknameError.value = '请输入昵称';
         return;
       }
-      if (!authPassword.value) {
-        authError.value = '请输入密码';
+      if (name.length > 12) {
+        nicknameError.value = '昵称最多 12 个字';
         return;
       }
-      if (authPassword.value.length < 6) {
-        authError.value = '密码至少需要 6 位';
-        return;
-      }
-      authBusy.value = true;
-      const { error } = await sb.auth.signUp({
-        email: authEmail.value.trim(),
-        password: authPassword.value,
-      });
-      authBusy.value = false;
-      if (error) authError.value = error.message;
-      else {
-        authError.value = '注册成功！若项目已开启邮箱确认，请查收邮件后再登录。';
-        authEmail.value = '';
-        authPassword.value = '';
+      saveNickname(name);
+      currentNickname.value = name;
+      showNicknameModal.value = false;
+      showQuizModal.value = false;
+      toast.show('欢迎加入师友伴，' + name + '！', 'success');
+
+      // ensure profile row exists (non-blocking)
+      if (sb) {
+        sb.from('profiles').upsert({
+          id: currentUserId.value,
+          display_name: name,
+        }).then(() => {
+          fetchOpenOrders();
+          subscribeOrders();
+        });
       }
     };
 
-    const logout = async () => {
-      if (sb) await sb.auth.signOut();
-      session.value = null;
+    /* ---- logout ---- */
+    const logout = () => {
+      clearIdentity();
+      currentNickname.value = '';
       currentView.value = 'hall';
+      unsubscribeOrders();
+      availableOrders.value = [];
+      toast.show('已退出', 'info');
     };
 
     /* ---- publish ---- */
@@ -236,7 +259,6 @@ createApp({
     const validatePublishForm = () => {
       const errors = {};
       if (!newForm.value.hospital) errors.hospital = '请选择医院';
-      if (!newForm.value.gender) errors.gender = '请选择性别偏好';
       const price = Number(newForm.value.price);
       if (!price || price < 1) errors.price = '金额至少为 1 元';
       if (price > 9999) errors.price = '金额不能超过 9999 元';
@@ -245,13 +267,14 @@ createApp({
     };
 
     const submitOrder = async () => {
-      if (!sb || !session.value) return;
+      if (!sb || !isLoggedIn.value) return;
       publishErrors.value = validatePublishForm();
       if (Object.keys(publishErrors.value).length > 0) return;
 
       const priceCents = Math.round(Number(newForm.value.price) * 100);
       const { error } = await sb.from('orders').insert({
-        publisher_id: session.value.user.id,
+        publisher_id: currentUserId.value,
+        publisher_name: currentNickname.value,
         hospital: newForm.value.hospital,
         gender_pref: newForm.value.gender,
         tags: newForm.value.tags,
@@ -295,7 +318,10 @@ createApp({
 
     const grabOrder = async (order) => {
       if (!sb) return;
-      const { data, error } = await sb.rpc('take_order', { p_order_id: order.id });
+      const { data, error } = await sb.rpc('take_order', {
+        p_order_id: order.id,
+        p_user_id: currentUserId.value,
+      });
       if (error) {
         toast.show('抢单失败: ' + error.message, 'error');
         return;
@@ -311,7 +337,10 @@ createApp({
 
     const releaseAndExit = async () => {
       if (!sb || !activeOrder.value) return;
-      await sb.rpc('release_order', { p_order_id: activeOrder.value.id }).catch(() => {});
+      await sb.rpc('release_order', {
+        p_order_id: activeOrder.value.id,
+        p_user_id: currentUserId.value,
+      }).catch(() => {});
       clearInterval(timer);
       timer = null;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -332,7 +361,10 @@ createApp({
       clearInterval(timer);
       timer = null;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      const { error } = await sb.rpc('confirm_order', { p_order_id: activeOrder.value.id });
+      const { error } = await sb.rpc('confirm_order', {
+        p_order_id: activeOrder.value.id,
+        p_user_id: currentUserId.value,
+      });
       if (error) {
         toast.show('确认失败: ' + error.message, 'error');
         startTimer();
@@ -368,12 +400,16 @@ createApp({
 
     /* ---- expose ---- */
     return {
-      /* config */
       configError,
-      /* auth */
-      session, authReady, userEmail,
-      showAuthModal, authEmail, authPassword, authError, authBusy,
-      signIn, signUp, logout,
+      /* identity */
+      currentUserId, currentNickname, isLoggedIn,
+      /* quiz */
+      QUIZ, showQuizModal, selectedAnswer, quizError, quizPassed,
+      checkAnswer, retryQuiz,
+      /* nickname */
+      showNicknameModal, nicknameInput, nicknameError, confirmNickname,
+      /* logout */
+      logout,
       /* orders */
       availableOrders, ordersLoading,
       /* views */
