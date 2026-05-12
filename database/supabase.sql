@@ -116,6 +116,22 @@ create trigger orders_set_updated_at
   for each row execute procedure public.set_orders_updated_at();
 
 -- ============================================================================
+-- 2.5 私信表
+-- ============================================================================
+
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null,
+  sender_id uuid not null,
+  sender_name text not null,
+  text text not null check (char_length(text) > 0 and char_length(text) <= 500),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists messages_order_created_idx
+  on public.messages (order_id, created_at asc);
+
+-- ============================================================================
 -- 3. 行级安全策略 — 允许匿名读写（答题登录无 auth.uid()）
 --    部分 Supabase 项目不支持 disable RLS，改为创建全通策略
 -- ============================================================================
@@ -129,10 +145,12 @@ drop policy if exists orders_select_visible on public.orders;
 drop policy if exists orders_insert_publisher on public.orders;
 drop policy if exists orders_cancel_by_publisher on public.orders;
 drop policy if exists orders_all on public.orders;
+drop policy if exists messages_all on public.messages;
 
 -- 创建允许 anon / authenticated 全操作的新策略
 create policy profiles_all on public.profiles for all to anon, authenticated using (true) with check (true);
 create policy orders_all on public.orders for all to anon, authenticated using (true) with check (true);
+create policy messages_all on public.messages for all to anon, authenticated using (true) with check (true);
 
 -- ============================================================================
 -- 4. RPC 函数：接受 p_user_id 参数，不再依赖 auth.uid()
@@ -257,6 +275,13 @@ grant execute on function public.release_order(uuid, uuid) to anon, authenticate
 do $$
 begin
   alter publication supabase_realtime add table public.orders;
+exception
+  when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.messages;
 exception
   when duplicate_object then null;
 end $$;

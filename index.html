@@ -95,6 +95,8 @@
                 <i class="fa-solid fa-hospital mr-1" aria-hidden="true"></i>看病陪诊
               </span>
               <span v-if="order.isMine" class="bg-bnu-light text-bnu-green text-xs px-2 py-1 rounded font-medium mr-2">我的订单</span>
+              <span v-if="order.status === 'taken'" class="bg-yellow-50 text-yellow-600 text-xs px-2 py-1 rounded font-medium mr-2">待确认</span>
+              <span v-if="order.status === 'locked'" class="bg-green-50 text-green-600 text-xs px-2 py-1 rounded font-medium mr-2">已锁定</span>
               <span class="text-sm text-gray-500">{{ order.hospital }}</span>
             </div>
           </div>
@@ -112,11 +114,14 @@
             "{{ order.note || '无特殊备注' }}"
           </p>
 
-          <button v-if="order.isMine" type="button" disabled class="w-full bg-gray-200 text-gray-400 py-2 rounded-lg font-medium cursor-not-allowed">
+          <button v-if="order.status === 'open' && order.isMine" type="button" disabled class="w-full bg-gray-200 text-gray-400 py-2 rounded-lg font-medium cursor-not-allowed">
             这是我的订单
           </button>
-          <button v-else type="button" @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95" :aria-label="'抢单：' + order.hospital + '，' + order.price + '元'">
+          <button v-else-if="order.status === 'open'" type="button" @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95" :aria-label="'抢单：' + order.hospital + '，' + order.price + '元'">
             立即抢单
+          </button>
+          <button v-else-if="order.involvesMe" type="button" @click="enterChat(order)" class="w-full bg-blue-500 text-white py-2 rounded-lg font-medium hover:bg-blue-600 transition">
+            <i class="fa-solid fa-comments mr-1" aria-hidden="true"></i>进入私信
           </button>
         </div>
       </div>
@@ -130,48 +135,63 @@
     <!--  CHAT VIEW                                                   -->
     <!-- ============================================================ -->
     <main v-else-if="isLoggedIn && currentView === 'chat' && activeOrder" class="flex-1 flex flex-col bg-gray-50" role="main" aria-label="订单沟通">
-      <div :class="['p-2 text-center text-sm font-bold shadow-sm transition-colors', timeLeft < 60 ? 'bg-red-100 text-red-600' : 'bg-bnu-light text-bnu-green']" aria-live="polite" :aria-label="'剩余时间 ' + formattedTime">
+      <!-- countdown bar (only during 'taken' status) -->
+      <div v-if="activeOrder.status === 'taken'" :class="['p-2 text-center text-sm font-bold shadow-sm transition-colors', timeLeft < 60 ? 'bg-red-100 text-red-600' : 'bg-bnu-light text-bnu-green']" aria-live="polite" :aria-label="'剩余时间 ' + formattedTime">
         <i class="fa-regular fa-clock mr-1" aria-hidden="true"></i>确认倒计时：{{ formattedTime }}
         <p class="text-xs font-normal opacity-80 mt-1">超时将自动释放订单回大厅</p>
       </div>
+      <div v-else class="p-2 text-center text-sm font-bold bg-green-100 text-green-700 shadow-sm">
+        <i class="fa-solid fa-lock mr-1" aria-hidden="true"></i>订单已锁定，可继续沟通
+      </div>
 
+      <!-- order info -->
       <div class="bg-white p-3 m-3 rounded-lg shadow-sm border border-gray-200">
         <div class="flex items-center justify-between">
           <div class="flex items-center">
-            <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 mr-3" aria-hidden="true">校友</div>
+            <div class="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center text-gray-500 mr-3 text-xs" aria-hidden="true">校友</div>
             <div>
-              <div class="text-sm font-bold">陪同校友 <i class="fa-solid fa-circle-check text-blue-500" aria-label="已认证"></i></div>
-              <div class="text-xs text-gray-500">订单沟通中</div>
+              <div class="text-sm font-bold">{{ isTaker ? activeOrder.publisher_name : '陪同校友' }}</div>
+              <div class="text-xs text-gray-500">{{ activeOrder.hospital }}</div>
             </div>
           </div>
           <div class="text-right">
-            <div class="text-xs text-gray-500">托管赏金</div>
+            <div class="text-xs text-gray-500">赏金</div>
             <div class="text-lg font-bold text-bnu-gold">￥{{ activeOrder.price }}</div>
           </div>
         </div>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-4 space-y-4" role="log" aria-label="聊天消息" aria-live="polite">
-        <div class="text-center text-xs text-gray-400 my-2">聊天为演示，成交以平台订单状态为准</div>
+      <!-- messages -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-4" role="log" aria-label="聊天消息" ref="msgContainer">
+        <div v-if="chatMessages.length === 0" class="text-center text-xs text-gray-400 py-8">
+          开始沟通吧
+        </div>
 
-        <div v-for="(msg, index) in chatMessages" :key="index" :class="['flex', msg.isMine ? 'justify-end' : 'justify-start']">
+        <div v-for="(msg, index) in chatMessages" :key="index" :class="['flex flex-col', msg.isMine ? 'items-end' : 'items-start']">
+          <span class="text-xs text-gray-400 mb-1 px-1">{{ msg.sender_name }}</span>
           <div :class="['max-w-[75%] p-3 rounded-2xl text-sm', msg.isMine ? 'bg-bnu-green text-white rounded-br-none' : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm']">
             {{ msg.text }}
           </div>
         </div>
       </div>
 
+      <!-- input area -->
       <div class="bg-white p-3 border-t">
-        <div class="flex gap-2 mb-3 overflow-x-auto pb-1" role="group" aria-label="快捷回复">
-          <button type="button" @click="sendQuickMsg('能在校医院门口见吗？')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200 transition">能在校医院门口见吗？</button>
-          <button type="button" @click="sendQuickMsg('我需要借轮椅')" class="whitespace-nowrap text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-gray-200 transition">我需要借轮椅</button>
-        </div>
-        <div class="flex gap-2">
-          <button type="button" @click="cancelOrder" class="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-200 transition">
+        <!-- confirm / cancel buttons (only for taker during 'taken' status) -->
+        <div v-if="activeOrder.status === 'taken' && isTaker" class="flex gap-2 mb-3">
+          <button type="button" @click="cancelOrder" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition">
             不太合适
           </button>
-          <button type="button" @click="confirmEscort" class="flex-[2] bg-bnu-green text-white py-2.5 rounded-lg text-sm font-bold shadow-md hover:bg-green-800 transition">
+          <button type="button" @click="confirmEscort" class="flex-[2] bg-bnu-green text-white py-2 rounded-lg text-sm font-bold shadow-md hover:bg-green-800 transition">
             确认由他/她陪同 (锁单)
+          </button>
+        </div>
+
+        <!-- message input -->
+        <div class="flex gap-2">
+          <input v-model="newMessageText" type="text" placeholder="输入消息..." maxlength="500" class="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:border-bnu-green focus:ring-1 focus:ring-bnu-green" @keyup.enter="sendMessage" aria-label="消息输入">
+          <button type="button" @click="sendMessage" :disabled="!newMessageText.trim()" class="bg-bnu-green text-white w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-40 transition hover:bg-green-800" aria-label="发送消息">
+            <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
           </button>
         </div>
       </div>

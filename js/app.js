@@ -53,6 +53,7 @@ const mapOrderRow = (r, currentUserId = '') => ({
   status: r.status,
   taker_id: r.taker_id,
   isMine: r.publisher_id === currentUserId,
+  involvesMe: r.publisher_id === currentUserId || r.taker_id === currentUserId,
 });
 
 /* ------------------------------------------------------------------ */
@@ -119,12 +120,19 @@ createApp({
     const newForm = ref({ hospital: '北师大校医院', gender: '仅限女生', tags: [], note: '', price: 50 });
     const publishErrors = ref({});
 
-    /* ---- chat / timer ---- */
+    /* ---- chat ---- */
     const activeOrder = ref(null);
     const chatMessages = ref([]);
+    const newMessageText = ref('');
     const timeLeft = ref(300);
+    const chatInputRef = ref(null);
     let timer = null;
     let lastVisibleTime = null;
+    let messagesChannel = null;
+
+    const isTaker = computed(() =>
+      activeOrder.value && activeOrder.value.taker_id === currentUserId.value
+    );
 
     /* ---- computed ---- */
     const formattedTime = computed(() => {
@@ -133,21 +141,35 @@ createApp({
       return `${m}:${s}`;
     });
 
-    /* ---- orders crud ---- */
-    const fetchOpenOrders = async () => {
+    /* ---- orders fetch ---- */
+    const fetchHallOrders = async () => {
       if (!sb || !isLoggedIn.value) return;
       ordersLoading.value = true;
-      const { data, error } = await sb
+      const uid = currentUserId.value;
+
+      // open orders (大厅)
+      const { data: openData } = await sb
         .from('orders')
         .select('*')
         .eq('status', 'open')
         .order('created_at', { ascending: false });
+
+      // my involved orders (taken / locked where i'm publisher or taker)
+      const { data: myData } = await sb
+        .from('orders')
+        .select('*')
+        .or(`publisher_id.eq.${uid},taker_id.eq.${uid}`)
+        .not('status', 'eq', 'open')
+        .not('status', 'eq', 'cancelled')
+        .order('updated_at', { ascending: false });
+
       ordersLoading.value = false;
-      if (error) {
-        toast.show('加载订单失败: ' + error.message, 'error');
-        return;
-      }
-      availableOrders.value = (data || []).map(r => mapOrderRow(r, currentUserId.value));
+
+      const merged = [...(myData || []), ...(openData || [])];
+      const seen = new Set();
+      availableOrders.value = merged
+        .filter(o => { const dup = seen.has(o.id); seen.add(o.id); return !dup; })
+        .map(r => mapOrderRow(r, uid));
     };
 
     const subscribeOrders = () => {
@@ -157,7 +179,7 @@ createApp({
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'orders' },
-          () => { fetchOpenOrders(); }
+          () => { fetchHallOrders(); }
         )
         .subscribe();
     };
@@ -171,18 +193,19 @@ createApp({
 
     watch(isLoggedIn, (loggedIn) => {
       if (loggedIn) {
-        fetchOpenOrders();
+        fetchHallOrders();
         subscribeOrders();
       } else {
         unsubscribeOrders();
+        unsubscribeMessages();
         availableOrders.value = [];
       }
     });
 
-    // init: auto-login if localStorage has nickname
+    // init
     (async () => {
       if (isLoggedIn.value) {
-        await fetchOpenOrders();
+        await fetchHallOrders();
         subscribeOrders();
       }
     })();
@@ -226,13 +249,12 @@ createApp({
       showQuizModal.value = false;
       toast.show('欢迎加入师友伴，' + name + '！', 'success');
 
-      // ensure profile row exists (non-blocking)
       if (sb) {
         sb.from('profiles').upsert({
           id: currentUserId.value,
           display_name: name,
         }).then(() => {
-          fetchOpenOrders();
+          fetchHallOrders();
           subscribeOrders();
         });
       }
@@ -244,6 +266,7 @@ createApp({
       currentNickname.value = '';
       currentView.value = 'hall';
       unsubscribeOrders();
+      unsubscribeMessages();
       availableOrders.value = [];
       toast.show('已退出', 'info');
     };
@@ -288,10 +311,66 @@ createApp({
       newForm.value = { hospital: '北师大校医院', gender: '仅限女生', tags: [], note: '', price: 50 };
       publishErrors.value = {};
       toast.show('订单发布成功', 'success');
-      await fetchOpenOrders();
+      await fetchHallOrders();
     };
 
-    /* ---- grab / chat ---- */
+    /* ---- messages ---- */
+    const loadMessages = async (orderId) => {
+      if (!sb) return;
+      const { data, error } = await sb
+        .from('messages')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: true });
+      if (!error) {
+        chatMessages.value = (data || []).map(m => ({
+          ...m,
+          isMine: m.sender_id === currentUserId.value,
+        }));
+      }
+    };
+
+    const sendMessage = async () => {
+      const text = newMessageText.value.trim();
+      if (!text || !sb || !activeOrder.value) return;
+      const { error } = await sb.from('messages').insert({
+        order_id: activeOrder.value.id,
+        sender_id: currentUserId.value,
+        sender_name: currentNickname.value,
+        text,
+      });
+      if (error) {
+        toast.show('发送失败: ' + error.message, 'error');
+        return;
+      }
+      newMessageText.value = '';
+    };
+
+    const subscribeMessages = (orderId) => {
+      if (!sb || messagesChannel) return;
+      messagesChannel = sb
+        .channel(`messages-${orderId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages', filter: `order_id=eq.${orderId}` },
+          (payload) => {
+            chatMessages.value.push({
+              ...payload.new,
+              isMine: payload.new.sender_id === currentUserId.value,
+            });
+          }
+        )
+        .subscribe();
+    };
+
+    const unsubscribeMessages = () => {
+      if (messagesChannel && sb) {
+        sb.removeChannel(messagesChannel);
+        messagesChannel = null;
+      }
+    };
+
+    /* ---- timer ---- */
     const startTimer = () => {
       clearInterval(timer);
       lastVisibleTime = Date.now();
@@ -315,6 +394,30 @@ createApp({
       }
     };
 
+    /* ---- enter / leave chat ---- */
+    const enterChat = (order, withCountdown = false) => {
+      activeOrder.value = order;
+      currentView.value = 'chat';
+      chatMessages.value = [];
+      newMessageText.value = '';
+      loadMessages(order.id);
+      subscribeMessages(order.id);
+      if (withCountdown) {
+        startTimer();
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+
+    const leaveChat = () => {
+      clearInterval(timer);
+      timer = null;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      unsubscribeMessages();
+      currentView.value = 'hall';
+      activeOrder.value = null;
+    };
+
+    /* ---- grab ---- */
     const grabOrder = async (order) => {
       if (!sb) return;
       const { data, error } = await sb.rpc('take_order', {
@@ -325,36 +428,23 @@ createApp({
         toast.show('抢单失败: ' + error.message, 'error');
         return;
       }
-      activeOrder.value = mapOrderRow(data);
-      currentView.value = 'chat';
-      chatMessages.value = [
-        { text: '你好，我已接单，我们可以沟通一下细节吗？', isMine: false },
-      ];
-      startTimer();
-      document.addEventListener('visibilitychange', handleVisibilityChange);
+      const taken = mapOrderRow(data, currentUserId.value);
+      await fetchHallOrders();
+      enterChat(taken, true);
     };
 
+    /* ---- release ---- */
     const releaseAndExit = async () => {
       if (!sb || !activeOrder.value) return;
       await sb.rpc('release_order', {
         p_order_id: activeOrder.value.id,
         p_user_id: currentUserId.value,
       }).catch(() => {});
-      clearInterval(timer);
-      timer = null;
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      currentView.value = 'hall';
-      activeOrder.value = null;
-      await fetchOpenOrders();
+      leaveChat();
+      await fetchHallOrders();
     };
 
-    const sendQuickMsg = (text) => {
-      chatMessages.value.push({ text, isMine: true });
-      setTimeout(() => {
-        chatMessages.value.push({ text: '收到，没问题！随时可以出发。', isMine: false });
-      }, 800);
-    };
-
+    /* ---- confirm ---- */
     const confirmEscort = async () => {
       if (!sb || !activeOrder.value) return;
       clearInterval(timer);
@@ -371,16 +461,15 @@ createApp({
         return;
       }
       showSuccess.value = true;
-      await fetchOpenOrders();
+      unsubscribeMessages();
+      await fetchHallOrders();
     };
 
-    const cancelOrder = async () => {
-      if (activeOrder.value?.status === 'taken') await releaseAndExit();
-      else {
-        clearInterval(timer);
-        document.removeEventListener('visibilitychange', handleVisibilityChange);
-        currentView.value = 'hall';
-        activeOrder.value = null;
+    const cancelOrder = () => {
+      if (activeOrder.value?.status === 'taken' && isTaker.value) {
+        releaseAndExit();
+      } else {
+        leaveChat();
       }
     };
 
@@ -395,6 +484,7 @@ createApp({
       clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       unsubscribeOrders();
+      unsubscribeMessages();
     });
 
     /* ---- expose ---- */
@@ -416,8 +506,9 @@ createApp({
       availableTags, newForm, publishErrors,
       toggleTag, submitOrder,
       /* chat */
-      grabOrder, activeOrder, chatMessages, timeLeft, formattedTime,
-      sendQuickMsg, confirmEscort, cancelOrder, resetApp,
+      enterChat, grabOrder, activeOrder, chatMessages, newMessageText,
+      sendMessage, timeLeft, formattedTime, isTaker,
+      confirmEscort, cancelOrder, resetApp,
       /* toast */
       toast,
     };
