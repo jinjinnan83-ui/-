@@ -41,7 +41,7 @@ const QUIZ = {
 /* ------------------------------------------------------------------ */
 /*  map a DB order row to view shape                                  */
 /* ------------------------------------------------------------------ */
-const mapOrderRow = (r) => ({
+const mapOrderRow = (r, currentUserId = '') => ({
   id: r.id,
   publisher_id: r.publisher_id,
   publisher_name: r.publisher_name || '校友',
@@ -52,6 +52,7 @@ const mapOrderRow = (r) => ({
   note: r.note,
   status: r.status,
   taker_id: r.taker_id,
+  isMine: r.publisher_id === currentUserId,
 });
 
 /* ------------------------------------------------------------------ */
@@ -146,9 +147,7 @@ createApp({
         toast.show('加载订单失败: ' + error.message, 'error');
         return;
       }
-      availableOrders.value = (data || [])
-        .filter((o) => o.publisher_id !== currentUserId.value)
-        .map(mapOrderRow);
+      availableOrders.value = (data || []).map(r => mapOrderRow(r, currentUserId.value));
     };
 
     const subscribeOrders = () => {

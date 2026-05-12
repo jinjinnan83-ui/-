@@ -94,6 +94,7 @@
               <span class="bg-red-50 text-red-600 text-xs px-2 py-1 rounded font-medium mr-2" role="img" aria-label="看病陪诊">
                 <i class="fa-solid fa-hospital mr-1" aria-hidden="true"></i>看病陪诊
               </span>
+              <span v-if="order.isMine" class="bg-bnu-light text-bnu-green text-xs px-2 py-1 rounded font-medium mr-2">我的订单</span>
               <span class="text-sm text-gray-500">{{ order.hospital }}</span>
             </div>
           </div>
@@ -111,7 +112,10 @@
             "{{ order.note || '无特殊备注' }}"
           </p>
 
-          <button type="button" @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95" :aria-label="'抢单：' + order.hospital + '，' + order.price + '元'">
+          <button v-if="order.isMine" type="button" disabled class="w-full bg-gray-200 text-gray-400 py-2 rounded-lg font-medium cursor-not-allowed">
+            这是我的订单
+          </button>
+          <button v-else type="button" @click="grabOrder(order)" class="w-full bg-bnu-green text-white py-2 rounded-lg font-medium hover:bg-green-800 transition active:scale-95" :aria-label="'抢单：' + order.hospital + '，' + order.price + '元'">
             立即抢单
           </button>
         </div>
